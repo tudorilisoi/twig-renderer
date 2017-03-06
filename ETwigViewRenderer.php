@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Twig view renderer
  *
@@ -9,8 +10,13 @@
  *
  * @version 1.1.15
  */
-class ETwigViewRenderer extends CApplicationComponent implements IViewRenderer
-{
+class ETwigViewRenderer extends CApplicationComponent implements IViewRenderer {
+
+    /**
+     * @var Twig_LoaderInterface the template loader
+     */
+    public $loader = null;
+
     /**
      * @var string Path alias to Twig
      */
@@ -20,9 +26,9 @@ class ETwigViewRenderer extends CApplicationComponent implements IViewRenderer
      */
     public $fileExtension = '.twig';
     /**
-      * @var array Twig environment options
-      * @see http://twig.sensiolabs.org/doc/api.html#environment-options
-      */
+     * @var array Twig environment options
+     * @see http://twig.sensiolabs.org/doc/api.html#environment-options
+     */
     public $options = array();
     /**
      * @var array Objects or static classes
@@ -65,15 +71,14 @@ class ETwigViewRenderer extends CApplicationComponent implements IViewRenderer
     private $_twig;
     private $_paths;
 
-    function init()
-    {
-        require_once Yii::getPathOfAlias($this->twigPathAlias).'/Autoloader.php';
+    function init() {
+        require_once Yii::getPathOfAlias($this->twigPathAlias) . '/Autoloader.php';
         Yii::registerAutoloader(array('Twig_Autoloader', 'autoload'), true);
 
         $app = Yii::app();
 
         /** @var $theme CTheme */
-        $theme = method_exists($app, 'getTheme') ? $app->getTheme() : null;
+        $theme = $app->getTheme();
 
         $this->_paths = array();
 
@@ -83,7 +88,8 @@ class ETwigViewRenderer extends CApplicationComponent implements IViewRenderer
 
         $this->_paths[] = $app->getBasePath();
 
-        $loader = new Twig_Loader_Filesystem($this->_paths);
+
+        $loader = $this->loader ? $this->loader : new Twig_Loader_Filesystem($this->_paths);
 
         $defaultOptions = array(
             'autoescape' => false, // false because other way Twig escapes all HTML in templates
@@ -91,7 +97,10 @@ class ETwigViewRenderer extends CApplicationComponent implements IViewRenderer
             'cache' => $app->getRuntimePath() . '/twig_cache/',
             'charset' => $app->charset,
         );
-        $this->_twig = new Twig_Environment($loader, array_merge($defaultOptions, $this->options));
+
+        $opts = array_merge($defaultOptions, $this->options);
+        unset($opts['path']);
+        $this->_twig = new Twig_Environment($loader, $opts);
 
         // Adding Yii::app() object to globals
         $this->_twig->addGlobal('App', $app);
@@ -136,15 +145,14 @@ class ETwigViewRenderer extends CApplicationComponent implements IViewRenderer
      * @param boolean $return whether the rendering result should be returned
      * @return mixed the rendering result, or null if the rendering result is not needed.
      */
-    public function renderFile($context, $sourceFile, $data, $return)
-    {
+    public function renderFile($context, $sourceFile, $data, $return) {
         // current controller properties will be accessible as {{ this.property }}
         $data['this'] = $context;
-        
+
         $sourceFile = realpath($sourceFile); // to prevent common problems with paths associated with symlinks
 
-        foreach($this->_paths as $path) {
-            if(strpos($sourceFile, $path) === 0) {
+        foreach ($this->_paths as $path) {
+            if (strpos($sourceFile, $path) === 0) {
                 $sourceFile = substr($sourceFile, strlen($path));
                 break;
             }
@@ -162,8 +170,7 @@ class ETwigViewRenderer extends CApplicationComponent implements IViewRenderer
      * Adds global objects or static classes
      * @param array $globals @see self::$globals
      */
-    public function addGlobals($globals)
-    {
+    public function addGlobals($globals) {
         foreach ($globals as $name => $value) {
             if (!is_object($value)) {
                 $value = new ETwigViewRendererStaticClassProxy($value);
@@ -176,8 +183,7 @@ class ETwigViewRenderer extends CApplicationComponent implements IViewRenderer
      * Adds custom functions
      * @param array $functions @see self::$functions
      */
-    public function addFunctions($functions)
-    {
+    public function addFunctions($functions) {
         $this->_addCustom('Function', $functions);
     }
 
@@ -185,8 +191,7 @@ class ETwigViewRenderer extends CApplicationComponent implements IViewRenderer
      * Adds custom filters
      * @param array $filters @see self::$filters
      */
-    public function addFilters($filters)
-    {
+    public function addFilters($filters) {
         $this->_addCustom('Filter', $filters);
     }
 
@@ -194,8 +199,7 @@ class ETwigViewRenderer extends CApplicationComponent implements IViewRenderer
      * Adds custom extensions
      * @param array $extensions @see self::$extensions
      */
-    public function addExtensions($extensions)
-    {
+    public function addExtensions($extensions) {
         foreach ($extensions as $extName) {
             $this->_twig->addExtension(new $extName());
         }
@@ -205,8 +209,7 @@ class ETwigViewRenderer extends CApplicationComponent implements IViewRenderer
      * Sets Twig lexer options to change templates syntax
      * @param array $options @see self::$lexerOptions
      */
-    public function setLexerOptions($options)
-    {
+    public function setLexerOptions($options) {
         $lexer = new Twig_Lexer($this->_twig, $options);
         $this->_twig->setLexer($lexer);
     }
@@ -215,8 +218,7 @@ class ETwigViewRenderer extends CApplicationComponent implements IViewRenderer
      * Returns Twig object
      * @return Twig_Environment
      */
-    public function getTwig()
-    {
+    public function getTwig() {
         return $this->_twig;
     }
 
@@ -226,8 +228,7 @@ class ETwigViewRenderer extends CApplicationComponent implements IViewRenderer
      * @param array $elements Parameters of elements to add
      * @throws CException
      */
-    private function _addCustom($classType, $elements)
-    {
+    private function _addCustom($classType, $elements) {
         $classFunction = 'Twig_Simple' . $classType;
 
         foreach ($elements as $name => $func) {
@@ -237,19 +238,19 @@ class ETwigViewRenderer extends CApplicationComponent implements IViewRenderer
                 // Just a name of function
                 case is_string($func):
                     $twigElement = new $classFunction($name, $func);
-                break;
+                    break;
                 // Name of function + options array
                 case is_array($func) && is_string($func[0]) && isset($func[1]) && is_array($func[1]):
                     $twigElement = new $classFunction($name, $func[0], $func[1]);
-                break;
+                    break;
             }
 
             if ($twigElement !== null) {
-                $this->_twig->{'add'.$classType}($twigElement);
+                $this->_twig->{'add' . $classType}($twigElement);
             } else {
                 throw new CException(Yii::t('yiiext',
-                                             'Incorrect options for "{classType}" [{name}]',
-                                             array('{classType}'=>$classType, '{name}'=>$name)));
+                    'Incorrect options for "{classType}" [{name}]',
+                    array('{classType}' => $classType, '{name}' => $name)));
             }
         }
     }
@@ -262,29 +263,25 @@ class ETwigViewRenderer extends CApplicationComponent implements IViewRenderer
  * @author Leonid Svyatov <leonid@svyatov.ru>
  * @version 1.0.0
  */
-class ETwigViewRendererStaticClassProxy
-{
+class ETwigViewRendererStaticClassProxy {
     private $_staticClassName;
 
     public function __construct($staticClassName) {
         $this->_staticClassName = $staticClassName;
     }
 
-    public function __get($property)
-    {
+    public function __get($property) {
         $class = new ReflectionClass($this->_staticClassName);
         return $class->getStaticPropertyValue($property);
     }
 
-    public function __set($property, $value)
-    {
+    public function __set($property, $value) {
         $class = new ReflectionClass($this->_staticClassName);
         $class->setStaticPropertyValue($property, $value);
         return $value;
     }
 
-    public function __call($method, $arguments)
-    {
+    public function __call($method, $arguments) {
         return call_user_func_array(array($this->_staticClassName, $method), $arguments);
     }
 }
@@ -295,19 +292,16 @@ class ETwigViewRendererStaticClassProxy
  * @author Leonid Svyatov <leonid@svyatov.ru>
  * @version 1.0.0
  */
-class ETwigViewRendererYiiCoreStaticClassesProxy
-{
+class ETwigViewRendererYiiCoreStaticClassesProxy {
     private $_classes = array();
 
-    function __isset($className)
-    {
-        return (isset($_classes[$className]) || class_exists('C'.$className));
+    function __isset($className) {
+        return (isset($_classes[$className]) || class_exists('C' . $className));
     }
 
-    function __get($className)
-    {
+    function __get($className) {
         if (!isset($this->_classes[$className])) {
-            $this->_classes[$className] = new ETwigViewRendererStaticClassProxy('C'.$className);
+            $this->_classes[$className] = new ETwigViewRendererStaticClassProxy('C' . $className);
         }
 
         return $this->_classes[$className];
@@ -323,7 +317,6 @@ class ETwigViewRendererYiiCoreStaticClassesProxy
  * @param mixed $argument
  * @return string
  */
-function ETwigViewRendererVoidFunction($argument)
-{
+function ETwigViewRendererVoidFunction($argument) {
     return '';
 }
